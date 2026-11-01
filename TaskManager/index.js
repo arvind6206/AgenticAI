@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 
 import connectDB from "./config/db.js";
 import graph from "./agent/graph.js";
+import taskRouter from "./routes/task.route.js";
 
 // Load environment variables
 dotenv.config();
@@ -24,6 +25,8 @@ app.get("/", (req, res) => {
         message: "Task Manager AI Agent is running"
     });
 });
+
+app.use('/api/v1/task', taskRouter)
 
 // AI Chat API
 app.post("/chat", async (req, res) => {

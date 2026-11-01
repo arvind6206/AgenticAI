@@ -5,13 +5,18 @@ import { TavilySearch } from "@langchain/tavily";
 import { createAgent, tool } from "langchain";
 import {ToolNode} from '@langchain/langgraph/prebuilt'
 import z from "zod";
-import { MessagesAnnotation, StateGraph } from "@langchain/langgraph";
+import { MessagesAnnotation, StateGraph, MemorySaver } from "@langchain/langgraph";
+import { MongoClient } from "mongodb";
 
 dotenv.config();
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT;
+
+const checkpointer = new MemorySaver()
+
+const client = new MongoClient(process.env.MONGO_URI)
 
 const tool1 = tool(({email, content}) => {
   return `email sent successfully to ${email} with content ${content}`
@@ -70,7 +75,7 @@ addNode("agent", agent)
 .addEdge("__start__", "agent")
 .addConditionalEdges("agent", shouldContinue)
 .addEdge("tool_node", "agent")
-.compile()
+.compile({checkpointer})
 
 
 app.post("/chat", async (req, res) => {
@@ -82,6 +87,8 @@ app.post("/chat", async (req, res) => {
         content: prompt
       }
     ]
+  }, {
+    configurable: {thread_id: "user-123"}
   })
   console.log(result.messages)
   return res.json(result.messages[result.messages.length - 1].content)
