@@ -10,10 +10,13 @@ import {
   StateGraph,
   MemorySaver,
   StateSchema,
+  interrupt,
+  Command,
 } from "@langchain/langgraph";
 import { MongoClient } from "mongodb";
 import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
 import { ChatGroq } from "@langchain/groq";
+import {randomUUID} from 'node:crypto'
 
 dotenv.config();
 const app = express();
@@ -129,19 +132,49 @@ const agent = async (state) => {
       Return JSON with:
       {
         "response": "your response",
-        "approvalRequires": "true or false"
+        "approvalRequires": true
       }
       
       `,
     },
+
+    {
+      role: "user",
+      content: state.prompt
+    }
   ]);
+
+  const parsed = JSON.parse(result.content)
+  return {
+    aiResponse: parsed.response,
+    approvalRequires: Boolean(parsed.approvalRequires)
+  }
 };
 
-const approvalNode = async () => {};
+const approvalNode = async (state) => {
+  const answer = interrupt({
+    message: "Do you approve this action?",
+    prompt: state.prompt,
+    aiResponse: state.aiResponse
+  })
 
-const actionNode = async () => {};
+  return {
+    approved: String(answer).trim().toLowerCase() === "yes"
+  }
+};
 
-const shouldContinue = async () => {
+const actionNode = async (state) => {
+  if(state.approved){
+    return {
+      result: `action approved`
+    }
+  }
+  return {
+    result: "action rejected by human"
+  }
+};
+
+const shouldContinue = async (state) => {
   if (state.approvalRequires) {
     return "approval";
   }
@@ -152,11 +185,56 @@ const graph = new StateGraph(customState)
   .addNode("agent", agent)
   .addNode("approval", approvalNode)
   .addNode("action", actionNode)
-  .addEdge("__start__", agent)
+  .addEdge("__start__", "agent")
   .addConditionalEdges("agent", shouldContinue)
   .addEdge("approval", "action")
   .addEdge("action", "__end__")
   .compile({ checkpointer });
+
+  app.post('/chat', async (req, res) => {
+    try {
+      const {prompt} = req.body;
+      const threadId = randomUUID()
+
+      const result = await graph.invoke(
+        {
+          prompt
+        },{
+          configurable: {thread_id: threadId}
+        }
+      )
+
+      return res.json({
+        threadId,
+        result: result.result,
+        ai: result.aiResponse
+      })
+    } catch (error) {
+      console.error(error)
+    }
+  })
+
+  app.post('/chat/resume', async (req, res) => {
+    try {
+      const {threadId, answer} = req.body;
+
+      const result = await graph.invoke(
+        new Command({
+          resume: String(answer)
+        }),
+        {
+          configurable: {thread_id: threadId}
+        }
+      )
+
+      return res.json({
+        threadId,
+        result: result.result
+      })
+    } catch (error) {
+      console.error(error)
+    }
+  })
 
 app.listen(PORT, () => {
   console.log(`Server is listening on http://localhost:${PORT}`);
