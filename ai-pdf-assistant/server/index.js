@@ -2,6 +2,7 @@ import express from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
 import pdfRouter from './routes/pdf.route.js'
+import { errorHandler } from './middleware/errorHandler.middleware.js'
 dotenv.config()
 
 const app = express()
@@ -10,6 +11,8 @@ app.use(cors())
 const PORT = process.env.PORT
 
 app.use('/api/pdf', pdfRouter)
+
+app.use(errorHandler)
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`)
